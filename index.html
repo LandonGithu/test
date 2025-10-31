@@ -784,7 +784,7 @@ const App = () => {
                 <button onClick={showDashboard} className="flex items-center text-indigo-600 hover:text-indigo-800 mb-6 font-semibold transition">
                     <ChevronLeft className="h-5 w-5 mr-1"/> Back to Dashboard
                 </button>
-                {/* FIX 1: Removed extra '}' after the expression, which caused a JSX parsing error. */}
+                
                 <h2 className="text-3xl font-extrabold text-gray-800 mb-4">{student.name}'s Strategy Planner</h2>
                 <p className="text-gray-500 mb-8">Student ID: <span className="font-mono text-indigo-600">{student.id}</span>. Customize this student's strategies.</p>
 
@@ -949,8 +949,9 @@ const App = () => {
     // Render the Add Student Modal
     const renderAddStudentModal = () => (
         <div className={`fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center z-40 p-4 transition-opacity duration-300 ${isAddStudentOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
-            <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full p-6 transform transition-transform duration-300 ${isAddStudentOpen ? 'scale-100' : 'scale-95'}`}>
-                {/* FIX 2: Restructured h3 tag to correctly contain the icon component, resolving the JSX parsing error. */}
+            {/* FIX: Corrected the className to use backticks for the template literal */}
+            <div className={`bg-white rounded-xl shadow-2xl max-w-lg w-full p-6 transform transition-transform duration-300 ${isAddStudentOpen ? 'scale-100' : 'scale-95'}`}>
+                
                 <h3 className="text-2xl font-bold text-indigo-600 mb-4 flex items-center">
                     <Plus className="h-6 w-6 mr-2"/> Add New Student Profile
                 </h3>
