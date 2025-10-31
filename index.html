@@ -1,88 +1,1122 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>My Awesome GitHub Page</title>
-    <!-- Load Tailwind CSS -->
-    <script src="https://cdn.tailwindcss.com"></script>
-    <style>
-        /* Custom font import and fallback */
-        :root {
-            font-family: 'Inter', sans-serif;
-        }
-        /* Custom styling for smooth transitions */
-        .card {
-            transition: transform 0.3s ease-in-out, box-shadow 0.3s ease-in-out;
-        }
-        .card:hover {
-            transform: translateY(-5px);
-            box-shadow: 0 10px 15px rgba(0, 0, 0, 0.1), 0 4px 6px rgba(0, 0, 0, 0.05);
-        }
-    </style>
-    <script>
-        tailwind.config = {
-            theme: {
-                extend: {
-                    colors: {
-                        'primary-blue': '#10b981', /* Emerald */
-                        'bg-gray': '#f9fafb',
-                    },
-                }
-            }
-        }
-    </script>
-</head>
-<body class="bg-bg-gray min-h-screen flex flex-col text-gray-800">
+import React, { useState, useEffect, useCallback } from 'react';
+import { 
+    initializeApp 
+} from 'firebase/app';
+import { 
+    getAuth, 
+    signInAnonymously, 
+    signInWithCustomToken, 
+    onAuthStateChanged, 
+    signOut,
+    signInWithEmailAndPassword
+} from 'firebase/auth';
+import { 
+    getFirestore, 
+    doc, 
+    onSnapshot, 
+    collection, 
+    setDoc, 
+    deleteDoc, 
+    updateDoc, 
+    arrayUnion, 
+    arrayRemove, 
+    getDoc, 
+    setLogLevel, // Added for debugging
+    query 
+} from 'firebase/firestore';
+import { 
+    Loader2, 
+    Plus, 
+    LogOut, 
+    Users, 
+    Trash2, 
+    Edit, 
+    Lock, 
+    ChevronLeft,
+    Shield,
+    Key,
+    AlertTriangle,
+    LogIn,
+    BookOpenText,
+    Settings
+} from 'lucide-react';
 
-    <!-- Header / Navigation Bar -->
-    <header class="bg-white shadow-md">
-        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
-            <h1 class="text-2xl font-extrabold text-primary-blue tracking-tight">
-                [Your Project/Name]
-            </h1>
-            <nav class="space-x-4">
-                <a href="#home" class="text-gray-600 hover:text-primary-blue transition duration-150 font-medium">Home</a>
-                <a href="#about" class="text-gray-600 hover:text-primary-blue transition duration-150 font-medium">About</a>
-                <a href="https://github.com/your-username/your-repo" target="_blank" class="text-white bg-primary-blue hover:bg-emerald-600 px-3 py-2 rounded-full text-sm shadow-lg transition duration-150">GitHub Repo</a>
-            </nav>
-        </div>
-    </header>
+// --- Global Constants (Mandatory Setup) ---
+const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+// NOTE: This email is used only for the initial auto-provisioning logic within this app.
+const PRIMARY_ADMIN_EMAIL = 'rolnila@ssfs.org'; 
 
-    <!-- Main Content Section -->
-    <main class="flex-grow">
-        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 sm:py-16">
+// --- Helper Components ---
 
-            <!-- Hero Section -->
-            <section id="home" class="text-center mb-16 bg-white p-8 rounded-xl shadow-xl">
-                <h2 class="text-4xl sm:text-5xl font-extrabold text-gray-900 mb-4 leading-tight">
-                    Welcome to My GitHub Page!
-                </h2>
-                <p class="text-lg sm:text-xl text-gray-500 max-w-3xl mx-auto">
-                    This is your free, static website hosted directly from your GitHub repository. Edit this content to showcase your projects, documentation, or personal information.
-                </p>
-                <div class="mt-8">
-                    <button class="bg-primary-blue text-white px-8 py-3 rounded-xl text-lg font-semibold shadow-xl hover:bg-emerald-600 transition duration-300 transform hover:scale-105">
-                        View Projects
+const LoadingSpinner = () => (
+    <div className="flex flex-col items-center justify-center p-8 bg-white/90 rounded-xl shadow-lg">
+        <Loader2 className="animate-spin h-8 w-8 text-indigo-600 mb-3" />
+        <p className="text-gray-600 font-semibold">Loading Application...</p>
+    </div>
+);
+
+const Modal = ({ title, message, onConfirm, onCancel, show, confirmText = "Confirm" }) => {
+    if (!show) return null;
+
+    return (
+        <div className="fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-xl shadow-2xl max-w-sm w-full p-6">
+                <h3 className="text-xl font-bold text-red-600 mb-4">{title}</h3>
+                <p className="text-gray-700 mb-6 whitespace-pre-wrap">{message}</p>
+                <div className="flex justify-end space-x-3">
+                    <button
+                        onClick={onCancel}
+                        className="px-4 py-2 text-gray-700 bg-gray-200 rounded-full hover:bg-gray-300 transition"
+                    >
+                        Cancel
+                    </button>
+                    <button
+                        onClick={onConfirm}
+                        className="px-4 py-2 text-white bg-red-600 rounded-full hover:bg-red-700 transition"
+                    >
+                        {confirmText}
                     </button>
                 </div>
-            </section>
+            </div>
+        </div>
+    );
+};
 
-            <!-- Featured Content Section -->
-            <section id="about" class="grid grid-cols-1 md:grid-cols-3 gap-8">
+const ErrorScreen = ({ initError }) => (
+    <div className="flex items-center justify-center min-h-screen bg-red-50 p-4">
+        <div className="bg-white p-8 rounded-xl shadow-2xl border-t-4 border-red-600 max-w-lg w-full">
+            <AlertTriangle className="h-10 w-10 text-red-600 mx-auto mb-4"/>
+            <h2 className="text-2xl font-bold text-red-800 text-center mb-4">Application Initialization Error</h2>
+            <p className="text-gray-700 whitespace-pre-wrap text-sm">{initError}</p>
+            <p className="mt-4 text-sm text-gray-500 text-center">Please contact support or check your environment configuration.</p>
+        </div>
+    </div>
+);
+
+// --- Main Application Component ---
+const App = () => {
+    // --- State-Driven Initialization (CRITICAL FIX) ---
+    const [firebaseState, setFirebaseState] = useState({ 
+        auth: null, 
+        db: null, 
+        isInitialized: false, 
+        initError: null 
+    });
+    
+    // --- Application State ---
+    const [deanUser, setDeanUser] = useState(null);
+    const [deanRole, setDeanRole] = useState(null); // 'admin' or 'dean'
+    const [isAuthReady, setIsAuthReady] = useState(false); // True when onAuthStateChanged has run once
+    const [students, setStudents] = useState({});
+    const [currentMode, setCurrentMode] = useState('admin'); // 'admin' or 'student'
+    const [currentView, setCurrentView] = useState('login'); // 'login', 'dashboard', 'planner', 'admin_management', 'student_view'
+    const [selectedStudentId, setSelectedStudentId] = useState(null);
+    const [loadingData, setLoadingData] = useState(false);
+    const [errorMessage, setErrorMessage] = useState('');
+    const [studentLoggedIn, setStudentLoggedIn] = useState(false);
+    const [studentLoading, setStudentLoading] = useState(false);
+
+    // Modals/Forms State for Dean
+    const [isAddStudentOpen, setIsAddStudentOpen] = useState(false);
+    const [newStudentName, setNewStudentName] = useState('');
+    const [newStudentId, setNewStudentId] = useState('');
+    const [newStudentPassword, setNewStudentPassword] = useState(''); 
+    const [showDeleteModal, setShowDeleteModal] = useState(false);
+    const [deleteTarget, setDeleteTarget] = useState(null);
+    
+    // --- Path Helpers (Firestore Access) ---
+    
+    // Helper to get the base public collection reference
+    const getPublicCollectionRef = useCallback((collectionName) => {
+        if (!firebaseState.db) return null;
+        return collection(firebaseState.db, 'artifacts', appId, 'public', 'data', collectionName);
+    }, [firebaseState.db]);
+
+    // Reference for Student Profile (Planner data)
+    const getStudentDocRef = useCallback((studentId) => {
+        if (!firebaseState.db) return null;
+        return doc(getPublicCollectionRef('students'), studentId);
+    }, [getPublicCollectionRef]);
+
+    // Reference for Student Credentials (Password data)
+    const getPasswordDocRef = useCallback((studentId) => {
+        if (!firebaseState.db) return null;
+        return doc(getPublicCollectionRef('student_passwords'), studentId);
+    }, [getPublicCollectionRef]);
+
+    // Reference for Dean Role data
+    const getDeanRoleDocRef = useCallback((uid) => {
+        if (!firebaseState.db) return null;
+        return doc(getPublicCollectionRef('dean_roles'), uid);
+    }, [getPublicCollectionRef]);
+
+
+    // --- 1. Firebase Initialization (Runs once) ---
+    useEffect(() => {
+        try {
+            if (Object.keys(firebaseConfig).length === 0 || !firebaseConfig.projectId) {
+                const errorMsg = "Firebase configuration object is empty or invalid. Cannot connect to database.";
+                console.error("CRITICAL: Firebase SDK Initialization Failed.", errorMsg);
+                throw new Error(errorMsg); 
+            }
+            // Set Firestore log level for debugging
+            setLogLevel('debug');
+            
+            const app = initializeApp(firebaseConfig);
+            const authInstance = getAuth(app);
+            const dbInstance = getFirestore(app);
+
+            setFirebaseState({ auth: authInstance, db: dbInstance, isInitialized: true, initError: null });
+            console.log("Firebase services successfully initialized.");
+        } catch (error) {
+            console.error("CRITICAL: Firebase SDK Initialization Failed.", error);
+            setFirebaseState(prev => ({ 
+                ...prev, 
+                isInitialized: true,
+                initError: `A critical error occurred: Firebase SDK Initialization Failed.\n\nError: ${error.message}` 
+            }));
+        }
+    }, []);
+
+    // --- 2. Dean/Admin Authentication and Role Checking (CRITICAL FIX TARGET) ---
+    useEffect(() => {
+        let authListenerUnsubscribe;
+        const { auth, isInitialized } = firebaseState;
+
+        if (!isInitialized || !auth) {
+            return;
+        }
+
+        const checkRoleAndProvision = async (user) => {
+            if (!user) {
+                setDeanRole(null);
+                return null;
+            }
+
+            const roleDocRef = getDeanRoleDocRef(user.uid);
+            if (!roleDocRef) return null;
+
+            const roleSnap = await getDoc(roleDocRef);
+            
+            if (roleSnap.exists()) {
+                const role = roleSnap.data().role;
+                setDeanRole(role);
+                return role;
+            } 
+            
+            // Auto-provisioning: If authenticated via custom token, provision as admin/dean
+            // This relies on the environment's auth token providing a specific UID.
+            if (user.uid && initialAuthToken && user.email === PRIMARY_ADMIN_EMAIL) {
+                console.log(`Force-provisioning user ${user.uid} as primary admin.`);
+                await setDoc(roleDocRef, {
+                    email: PRIMARY_ADMIN_EMAIL, 
+                    role: 'admin',
+                    createdAt: new Date().toISOString()
+                });
+                setDeanRole('admin');
+                return 'admin';
+            }
+
+            setDeanRole(null);
+            return null;
+        }
+
+        const handleAuthStateChange = async (currentUser) => {
+            setIsAuthReady(true); // Indicate auth flow has completed its initial check
+
+            if (currentUser && currentUser.isAnonymous) {
+                // Initial anonymous login, proceed to custom token if available
+                 if (initialAuthToken) {
+                    try {
+                        console.log("Attempting automatic sign-in with custom token...");
+                        await signInWithCustomToken(auth, initialAuthToken);
+                        return; // onAuthStateChanged will be triggered again with the new user
+                    } catch (e) {
+                        console.warn("Custom token sign-in failed. Keeping anonymous.", e);
+                    }
+                }
+            }
+            
+            if (currentUser) {
+                setDeanUser(currentUser);
+                const role = await checkRoleAndProvision(currentUser);
                 
-                <!-- Card 1 -->
-                <div class="card bg-white p-6 rounded-2xl shadow-lg border border-gray-100">
-                    <div class="text-primary-blue mb-4">
-                        <!-- Icon Placeholder -->
-                        <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-1.25-3M15 10V6a3 3 0 00-3-3 3 3 0 00-3 3v4m5-4h2m-4 0h-2"></path></svg>
+                if (currentMode === 'admin' && (role === 'dean' || role === 'admin')) {
+                    setCurrentView('dashboard');
+                } else if (currentMode === 'admin') {
+                    // Authenticated, but not a Dean/Admin role
+                    setCurrentView('login');
+                }
+            } else {
+                setDeanUser(null);
+                setDeanRole(null);
+                
+                // Fallback to anonymous sign-in if no user is found
+                try {
+                    console.log("Signing in anonymously...");
+                    await signInAnonymously(auth);
+                } catch (e) {
+                    console.error("Anonymous sign-in failed.", e);
+                    if (currentMode === 'admin') setCurrentView('login');
+                }
+            }
+        };
+
+        // Initial sign-in attempt
+        const initialSignIn = async () => {
+             if (initialAuthToken) {
+                 try {
+                     console.log("Attempting initial sign-in with custom token...");
+                     await signInWithCustomToken(auth, initialAuthToken);
+                 } catch (e) {
+                     console.warn("Initial custom token sign-in failed. Falling back to auth listener.", e);
+                     authListenerUnsubscribe = onAuthStateChanged(auth, handleAuthStateChange);
+                 }
+             } else {
+                 // No custom token, rely on listener for anonymous sign-in
+                 authListenerUnsubscribe = onAuthStateChanged(auth, handleAuthStateChange);
+             }
+        };
+        
+        // Use the auth state listener as the main mechanism
+        authListenerUnsubscribe = onAuthStateChanged(auth, handleAuthStateChange);
+
+        return () => {
+            if (authListenerUnsubscribe) {
+                authListenerUnsubscribe();
+            }
+        };
+    }, [firebaseState.auth, firebaseState.isInitialized, currentMode, getDeanRoleDocRef, initialAuthToken, PRIMARY_ADMIN_EMAIL]); 
+
+    // --- 3. Data Fetching (Real-time Listener for Dean Mode - Security Fix Implemented) ---
+    useEffect(() => {
+        const { db } = firebaseState;
+        
+        // CRITICAL FIX: Only run if in Admin mode, Firebase is ready, the user is authenticated (deanUser), 
+        // AND the user's role has been successfully confirmed (deanRole).
+        // If deanUser is present but deanRole is still null, we wait, preventing unauthorized access attempts.
+        if (currentMode !== 'admin' || !deanUser || !db || !deanRole || currentView === 'login' || !isAuthReady) {
+            if (loadingData) setLoadingData(false);
+            if (Object.keys(students).length > 0) setStudents({});
+            return;
+        }
+        
+        setLoadingData(true);
+        const studentsRef = getPublicCollectionRef('students');
+        if (!studentsRef) {
+            setLoadingData(false);
+            return;
+        }
+
+        // Listener for the main student planner data
+        const unsubscribe = onSnapshot(studentsRef, (snapshot) => {
+            const studentMap = {};
+            snapshot.docs.forEach(doc => {
+                studentMap[doc.id] = { id: doc.id, ...doc.data() };
+            });
+            setStudents(studentMap);
+            setLoadingData(false);
+        }, (error) => {
+            // Log the error but keep the app functional
+            console.error("Firestore data snapshot error (This indicates the likely permission issue):", error);
+            setErrorMessage("Failed to load student data. Ensure you are signed in with the correct Dean/Admin account.");
+            setLoadingData(false);
+        });
+
+        return () => unsubscribe();
+    }, [currentMode, deanUser, firebaseState.db, deanRole, currentView, isAuthReady, getPublicCollectionRef]); // Added isAuthReady to ensure listener only starts after auth check
+
+    // --- Dean/Admin Login/Logout Handlers ---
+    
+    const handleManualLogin = async (email, password) => {
+        setErrorMessage('');
+        const { auth } = firebaseState;
+        if (!auth) return setErrorMessage("App services not ready.");
+        
+        try {
+            await signInWithEmailAndPassword(auth, email, password);
+        } catch (error) {
+            console.error("Dean manual login failed:", error);
+            setErrorMessage(`Login failed. Check email/password. Error: ${error.message.split('/')[1]?.replace(/[)-]/g, ' ').trim() || error.code}`);
+        }
+    };
+
+    const handleDeanLogout = async () => {
+        setErrorMessage('');
+        const { auth } = firebaseState;
+        if (!auth) return;
+        
+        try {
+            await signOut(auth);
+        } catch (error) {
+            console.error("Dean logout failed:", error);
+            setErrorMessage("Logout failed. Try refreshing the page.");
+        }
+    };
+
+    // --- Data Handlers (CRUD Operations - Dean/Admin Only) ---
+    
+    const handleAddStudent = async (e) => {
+        e.preventDefault();
+        setErrorMessage('');
+        const safeId = newStudentId.toUpperCase().trim();
+        const safeName = newStudentName.trim();
+        const safePassword = newStudentPassword.trim();
+        
+        const studentDocRef = getStudentDocRef(safeId);
+        const passwordDocRef = getPasswordDocRef(safeId);
+
+        if (!studentDocRef || !passwordDocRef || !deanUser) {
+             setErrorMessage("App services or user authentication is not ready.");
+             return;
+        }
+
+        if (!safeId || !safeName || !safePassword) {
+            setErrorMessage("Student ID, Name, and initial Password are required.");
+            return;
+        }
+
+        if (students[safeId]) {
+            setErrorMessage(`Student ID ${safeId} already exists. Please use a unique ID.`);
+            return;
+        }
+
+        try {
+            // 1. Create the Student Document (Planner Data)
+            await setDoc(studentDocRef, {
+                name: safeName,
+                strategies: [], // Array of strategy objects
+                deanId: deanUser.uid,
+                createdAt: new Date().toISOString()
+            });
+
+            // 2. Create the Credentials Document
+            await setDoc(passwordDocRef, {
+                password: safePassword, // Plaintext password (for this Canvas demo)
+                studentId: safeId
+            });
+
+            // Reset form and close modal
+            setNewStudentId('');
+            setNewStudentName('');
+            setNewStudentPassword('');
+            setIsAddStudentOpen(false);
+        } catch (e) {
+            console.error("Error adding document: ", e);
+            setErrorMessage("Failed to add student. Check Firestore rules or connectivity.");
+        }
+    };
+
+    const handleDeleteStudent = async (studentId) => {
+        setErrorMessage('');
+        const studentDocRef = getStudentDocRef(studentId);
+        const passwordDocRef = getPasswordDocRef(studentId);
+        
+        if (!studentDocRef || !passwordDocRef) {
+             setErrorMessage("App services not ready.");
+             return;
+        }
+
+        try {
+            // 1. Delete Planner Document
+            await deleteDoc(studentDocRef);
+            // 2. Delete Credentials Document
+            await deleteDoc(passwordDocRef);
+
+            setShowDeleteModal(false);
+            setDeleteTarget(null);
+            if (currentView === 'planner' && selectedStudentId === studentId) {
+                setCurrentView('dashboard');
+                setSelectedStudentId(null);
+            }
+        } catch (e) {
+            console.error("Error deleting document: ", e);
+            setErrorMessage("Failed to delete student. Check permissions.");
+        }
+    };
+
+    const handleAddStrategy = async (studentId, task, strategy) => {
+        if (!task || !strategy) return;
+        setErrorMessage('');
+
+        const studentDocRef = getStudentDocRef(studentId);
+        if (!studentDocRef || !deanUser) {
+             setErrorMessage("App services or user authentication is not ready.");
+             return;
+        }
+
+        // Structure matches the requirement: id, task, strategy, addedBy, timestamp
+        const newStrategyItem = {
+            id: crypto.randomUUID(), 
+            task: task.trim(),
+            strategy: strategy.trim(),
+            addedBy: deanUser.uid,
+            timestamp: new Date().toISOString()
+        };
+
+        try {
+            await updateDoc(studentDocRef, {
+                strategies: arrayUnion(newStrategyItem)
+            });
+        } catch (e) {
+            console.error("Error adding strategy: ", e);
+            setErrorMessage("Failed to add strategy. Check data structure.");
+        }
+    };
+
+    const handleRemoveStrategy = async (studentId, strategyItem) => {
+        setErrorMessage('');
+        const studentDocRef = getStudentDocRef(studentId);
+        if (!studentDocRef) {
+             setErrorMessage("App services not ready.");
+             return;
+        }
+        
+        try {
+            // Must use the exact, full object to remove it from the array
+            await updateDoc(studentDocRef, {
+                strategies: arrayRemove(strategyItem)
+            });
+        } catch (e) {
+            console.error("Error removing strategy: ", e);
+            setErrorMessage("Failed to remove strategy.");
+        }
+    };
+
+
+    // --- Student Login/Logout Handlers ---
+    const handleStudentLogin = async (id, password) => {
+        setStudentLoading(true);
+        setErrorMessage('');
+        const safeId = id.toUpperCase().trim();
+        const safePassword = password.trim();
+
+        const passwordDocRef = getPasswordDocRef(safeId);
+
+        if (!passwordDocRef) {
+             setErrorMessage("App services not ready.");
+             setStudentLoading(false);
+             return;
+        }
+        
+        try {
+            // Step 1: Check credentials
+            const passwordDocSnap = await getDoc(passwordDocRef);
+
+            if (!passwordDocSnap.exists()) {
+                setErrorMessage("Invalid Student ID or Password.");
+                setStudentLoading(false);
+                return;
+            }
+
+            const storedPassword = passwordDocSnap.data().password;
+            
+            if (storedPassword !== safePassword) {
+                setErrorMessage("Invalid Student ID or Password.");
+                setStudentLoading(false);
+                return;
+            }
+
+            // Step 2: Credentials validated! Fetch and set student data for view
+            const studentDocSnap = await getDoc(getStudentDocRef(safeId));
+            if (!studentDocSnap.exists()) {
+                setErrorMessage("Student profile not found. Contact your Dean.");
+                setStudentLoading(false);
+                return;
+            }
+
+            // Manually update students state with the single profile if it's missing from the main listener
+            if (!students[safeId]) {
+                 setStudents(prev => ({ ...prev, [safeId]: { id: safeId, ...studentDocSnap.data() } }));
+            }
+            
+            setSelectedStudentId(safeId);
+            setStudentLoggedIn(true);
+            setCurrentView('student_view');
+
+        } catch (error) {
+            console.error("Student login failed:", error);
+            setErrorMessage("An unexpected error occurred during login. Try again.");
+        } finally {
+            setStudentLoading(false);
+        }
+    };
+
+    const handleStudentLogout = () => {
+        setSelectedStudentId(null);
+        setStudentLoggedIn(false);
+        setCurrentView('login');
+    };
+
+    // --- View Handlers ---
+    const showPlanner = (studentId) => {
+        setSelectedStudentId(studentId);
+        setCurrentView('planner');
+    };
+
+    const showDashboard = () => {
+        setSelectedStudentId(null);
+        setCurrentView('dashboard');
+    };
+    
+    // --- Initial Load and Crash Prevention ---
+    if (!firebaseState.isInitialized || (currentMode === 'admin' && !isAuthReady)) {
+        return (
+            <div className="flex items-center justify-center min-h-screen bg-gray-100">
+                <LoadingSpinner />
+            </div>
+        );
+    }
+
+    if (firebaseState.initError) {
+        return <ErrorScreen initError={firebaseState.initError} />;
+    }
+    
+    // --- Component Render Functions (Simplified and placed inline) ---
+
+    // --- Dean/Admin Login Component ---
+    const DeanLogin = () => {
+        const [email, setEmail] = useState('');
+        const [password, setPassword] = useState('');
+        const [loading, setLoading] = useState(false);
+
+        const handleSubmit = (e) => {
+            e.preventDefault();
+            setErrorMessage('');
+            setLoading(true);
+            handleManualLogin(email, password)
+                .finally(() => setLoading(false));
+        };
+
+        return (
+            <div className="flex flex-col items-center justify-center p-4 sm:p-8 min-h-[50vh]">
+                <div className="max-w-md w-full bg-white p-8 rounded-xl shadow-2xl border-t-4 border-indigo-500">
+                    <h2 className="text-3xl font-extrabold text-indigo-800 mb-2 text-center">Dean/Admin Login</h2>
+                    <p className="text-gray-500 mb-6 text-center">Sign in to manage student strategies.</p>
+                    
+                    <div className="bg-yellow-100 border-l-4 border-yellow-500 text-yellow-700 p-4 mb-6 rounded-lg shadow-sm">
+                        <p className="font-bold flex items-center mb-1">
+                            <AlertTriangle className="h-5 w-5 mr-2" /> Auth Note
+                        </p>
+                        <p className="text-sm">Since the initial sign-in attempt failed, you must manually log in using your Dean/Admin credentials. This requires the Email/Password provider to be enabled in your Firebase project.</p>
                     </div>
-                    <h3 class="text-xl font-bold mb-3 text-gray-900">Easy to Deploy</h3>
-                    <p class="text-gray-600 text-sm">Just commit this `index.html` file to your repo and enable GitHub Pages in your settings.</p>
+
+                    <form onSubmit={handleSubmit} className="space-y-4">
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="email">Email</label>
+                            <input
+                                id="email"
+                                type="email"
+                                value={email}
+                                onChange={(e) => setEmail(e.target.value)}
+                                className="w-full p-3 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 transition text-lg"
+                                placeholder="dean@school.edu"
+                                required
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="password">Password</label>
+                            <input
+                                id="password"
+                                type="password"
+                                value={password}
+                                onChange={(e) => setPassword(e.target.value)}
+                                className="w-full p-3 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 transition text-lg"
+                                placeholder="••••••••"
+                                required
+                            />
+                        </div>
+                        <button
+                            type="submit"
+                            disabled={loading}
+                            className="w-full flex items-center justify-center px-4 py-3 bg-indigo-600 text-white font-semibold rounded-full hover:bg-indigo-700 transition shadow-lg disabled:opacity-50"
+                        >
+                            {loading ? <Loader2 className="animate-spin h-5 w-5 mr-2" /> : <Key className="h-5 w-5 mr-2" />}
+                            Sign In
+                        </button>
+                    </form>
+                    <button 
+                        onClick={() => setCurrentMode('student')} 
+                        className="w-full mt-4 text-sm text-gray-500 hover:text-indigo-600 transition"
+                    >
+                        &larr; Switch to Student Login
+                    </button>
                 </div>
+            </div>
+        );
+    };
+
+    // --- Student Login/View Components ---
+    const StudentLogin = () => {
+        const [studentIdInput, setStudentIdInput] = useState('');
+        const [passwordInput, setPasswordInput] = useState('');
+
+        const handleSubmit = (e) => {
+            e.preventDefault();
+            setErrorMessage('');
+            if (!studentIdInput || !passwordInput) {
+                setErrorMessage("Please enter both ID and Password.");
+                return;
+            }
+            handleStudentLogin(studentIdInput.toUpperCase().trim(), passwordInput);
+        };
+
+        return (
+            <div className="flex flex-col items-center justify-center p-4 sm:p-8 min-h-[50vh]">
+                <div className="max-w-md w-full bg-white p-8 rounded-xl shadow-2xl border-t-4 border-indigo-500">
+                    <h2 className="text-3xl font-extrabold text-indigo-800 mb-2 text-center">Student Login</h2>
+                    <p className="text-gray-500 mb-6 text-center">
+                        View your personalized strategies from your Dean.
+                    </p>
+                    <form onSubmit={handleSubmit} className="space-y-4">
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="studentId">Student ID (Username)</label>
+                            <input
+                                id="studentId"
+                                type="text"
+                                value={studentIdInput}
+                                onChange={(e) => setStudentIdInput(e.target.value)}
+                                className="w-full p-3 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 transition text-lg uppercase"
+                                placeholder="e.g., S001"
+                                required
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="password">Password</label>
+                            <input
+                                id="password"
+                                type="password"
+                                value={passwordInput}
+                                onChange={(e) => setPasswordInput(e.target.value)}
+                                className="w-full p-3 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 transition text-lg"
+                                placeholder="••••••••"
+                                required
+                            />
+                        </div>
+                        <button
+                            type="submit"
+                            disabled={studentLoading}
+                            className="w-full flex items-center justify-center px-4 py-3 bg-indigo-600 text-white font-semibold rounded-full hover:bg-indigo-700 transition shadow-lg disabled:opacity-50"
+                        >
+                            {studentLoading ? <Loader2 className="animate-spin h-5 w-5 mr-2" /> : <Lock className="h-5 w-5 mr-2" />}
+                            Log In
+                        </button>
+                    </form>
+                    <button 
+                        onClick={() => {setCurrentMode('admin'); handleStudentLogout();}} 
+                        className="w-full mt-4 text-sm text-gray-500 hover:text-indigo-600 transition"
+                    >
+                        &larr; Return to Dean/Admin
+                    </button>
+                </div>
+            </div>
+        );
+    };
+
+    const StudentView = ({ student }) => (
+        <div className="p-4 sm:p-8">
+             <button onClick={handleStudentLogout} className="flex items-center text-indigo-600 hover:text-indigo-800 mb-6 font-semibold transition">
+                <ChevronLeft className="h-5 w-5 mr-1"/> Log Out
+            </button>
+            <div className="bg-white p-6 rounded-xl shadow-2xl">
+                <h2 className="text-3xl font-extrabold text-gray-800 mb-2">{student.name}'s Custom Strategies</h2>
+                <p className="text-gray-500 mb-8">Student ID: <span className="font-mono text-indigo-600">{student.id}</span></p>
+
+                <h3 className="text-2xl font-bold text-indigo-700 mb-4 border-b pb-2 flex items-center">
+                    <BookOpenText className="h-6 w-6 mr-2" /> Personalized Planner
+                </h3>
                 
-                <!-- Card 2: Where to put your content -->
-                <div class="card bg-primary-blue text-white p-6 rounded-2xl shadow-xl">
-                    <div class="text-white mb-4">
-                        <!-- Icon Placeholder -->
-                        <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke
+                {student.strategies && student.strategies.length > 0 ? (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        {student.strategies.map((item) => (
+                            <div key={item.id} className="p-5 bg-indigo-50 border-l-4 border-indigo-500 rounded-lg shadow-sm">
+                                <p className="text-sm font-light text-gray-500 mb-1">Task Goal</p>
+                                <p className="font-bold text-lg text-gray-800 mb-3">{item.task}</p>
+                                <p className="text-sm font-light text-gray-500 mb-1">Suggested Strategy/Skill</p>
+                                <p className="text-gray-700">{item.strategy}</p>
+                            </div>
+                        ))}
+                    </div>
+                ) : (
+                    <div className="text-center p-12 bg-gray-50 rounded-lg text-gray-500 italic border border-dashed">
+                        <Loader2 className="h-10 w-10 text-gray-400 mx-auto mb-3" />
+                        <p className="font-semibold">Your Dean is currently setting up your strategies.</p>
+                        <p>Check back later or contact your advisor.</p>
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+    
+    // Component for the Strategy Planner View (Dean Mode - Editing)
+    const DeanPlanner = ({ student }) => {
+        const [taskInput, setTaskInput] = useState('');
+        const [strategyInput, setStrategyInput] = useState('');
+        const [showStrategyDeleteModal, setShowStrategyDeleteModal] = useState(false);
+        const [strategyToDelete, setStrategyToDelete] = useState(null);
+
+        const handleAdd = (e) => {
+            e.preventDefault();
+            if (taskInput && strategyInput) {
+                handleAddStrategy(student.id, taskInput, strategyInput);
+                setTaskInput('');
+                setStrategyInput('');
+            }
+        };
+
+        const handleConfirmStrategyDelete = (item) => {
+            setStrategyToDelete({ studentId: student.id, strategyItem: item });
+            setShowStrategyDeleteModal(true);
+        }
+
+        const confirmStrategyDeletion = () => {
+            if (strategyToDelete) {
+                handleRemoveStrategy(strategyToDelete.studentId, strategyToDelete.strategyItem);
+            }
+            setShowStrategyDeleteModal(false);
+            setStrategyToDelete(null);
+        }
+
+        return (
+            <div className="p-4 sm:p-8">
+                <button onClick={showDashboard} className="flex items-center text-indigo-600 hover:text-indigo-800 mb-6 font-semibold transition">
+                    <ChevronLeft className="h-5 w-5 mr-1"/> Back to Dashboard
+                </button>
+                {/* FIX 1: Removed extra '}' after the expression, which caused a JSX parsing error. */}
+                <h2 className="text-3xl font-extrabold text-gray-800 mb-4">{student.name}'s Strategy Planner</h2>
+                <p className="text-gray-500 mb-8">Student ID: <span className="font-mono text-indigo-600">{student.id}</span>. Customize this student's strategies.</p>
+
+                <div className="grid grid-cols-1 lg:col-span-3 gap-8">
+                    {/* Strategy List Column */}
+                    <div className="lg:col-span-2 bg-white p-6 rounded-xl shadow-lg h-full">
+                        <h3 className="text-2xl font-bold text-indigo-700 mb-4 flex items-center">
+                            <Users className="h-6 w-6 mr-2" /> Applied Strategies
+                        </h3>
+                        
+                        {student.strategies && student.strategies.length > 0 ? (
+                            <ul className="space-y-4">
+                                {student.strategies.map((item) => (
+                                    <li key={item.id} className="p-4 bg-indigo-50 border-l-4 border-indigo-500 rounded-lg flex justify-between items-start shadow-sm">
+                                        <div className="pr-4">
+                                            <p className="font-semibold text-gray-800">Task Goal: <span className="font-normal text-indigo-700">{item.task}</span></p>
+                                            <p className="text-sm text-gray-600 mt-1">Strategy: {item.strategy}</p>
+                                        </div>
+                                        <button 
+                                            onClick={() => handleConfirmStrategyDelete(item)}
+                                            className="p-2 text-red-500 hover:text-red-700 transition p-1 rounded-full hover:bg-red-100"
+                                            title="Remove Strategy"
+                                        >
+                                            <Trash2 className="h-5 w-5" />
+                                        </button>
+                                    </li>
+                                ))}
+                            </ul>
+                        ) : (
+                            <div className="text-center p-8 bg-gray-50 rounded-lg text-gray-500 italic">
+                                No custom strategies added yet.
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Add Strategy Form Column */}
+                    <div className="lg:col-span-1 bg-white p-6 rounded-xl shadow-lg border border-indigo-100 sticky top-4 self-start">
+                        <h3 className="text-2xl font-bold text-green-600 mb-4">Add New Strategy</h3>
+                        <form onSubmit={handleAdd} className="space-y-4">
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="taskGoal">Task Goal</label>
+                                <input
+                                    id="taskGoal"
+                                    type="text"
+                                    value={taskInput}
+                                    onChange={(e) => setTaskInput(e.target.value)}
+                                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-green-500 focus:border-green-500 transition"
+                                    placeholder="e.g., Organizing Notes"
+                                    required
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="strategyDetail">Suggested Strategy</label>
+                                <textarea
+                                    id="strategyDetail"
+                                    value={strategyInput}
+                                    onChange={(e) => setStrategyInput(e.target.value)}
+                                    rows="3"
+                                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-green-500 focus:border-green-500 transition"
+                                    placeholder="e.g., Use the Cornell Method to outline key points."
+                                    required
+                                ></textarea>
+                            </div>
+                            <button
+                                type="submit"
+                                className="w-full flex items-center justify-center px-4 py-3 bg-green-600 text-white font-semibold rounded-full hover:bg-green-700 transition shadow-lg"
+                            >
+                                <Plus className="h-5 w-5 mr-2" /> Add Strategy
+                            </button>
+                        </form>
+                    </div>
+                </div>
+                <Modal 
+                    title="Confirm Strategy Removal"
+                    message={"Are you sure you want to remove this specific strategy from the student's plan?"}
+                    show={showStrategyDeleteModal}
+                    onCancel={() => setShowStrategyDeleteModal(false)}
+                    onConfirm={confirmStrategyDeletion}
+                    confirmText="Remove Strategy"
+                />
+            </div>
+        );
+    };
+    
+    // Render the Dashboard View (Dean Mode)
+    const renderDashboard = () => (
+        <div className="p-4 sm:p-8">
+            <div className="flex justify-between items-center mb-6 border-b pb-2">
+                <h2 className="text-3xl font-extrabold text-indigo-800">Student Strategy Dashboard</h2>
+                {deanRole === 'admin' && (
+                    <button
+                        onClick={() => setCurrentView('admin_management')}
+                        className="flex items-center px-4 py-2 bg-red-600 text-white font-semibold rounded-full shadow-lg hover:bg-red-700 transition text-sm"
+                    >
+                        <Shield className="h-4 w-4 mr-2" /> Admin Tools
+                    </button>
+                )}
+            </div>
+            
+            {/* Display status for the auto-authenticated admin/dean */}
+            <div className="bg-green-100 border-l-4 border-green-500 text-green-700 p-4 mb-6 rounded-lg shadow-md" role="alert">
+                <p className="font-bold flex items-center"><LogIn className="h-5 w-5 mr-2" /> Signed In as Dean</p>
+                <p>You are authenticated as **{deanRole || 'Dean'}** with ID: <span className="font-mono">{deanUser?.uid || 'N/A'}</span></p>
+            </div>
+
+            {errorMessage && (
+                <div className="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mb-6 rounded-lg" role="alert">
+                    <p className="font-bold flex items-center"><AlertTriangle className="h-5 w-5 mr-2" /> Error</p>
+                    <p className="text-sm mt-1 whitespace-pre-wrap">{errorMessage}</p>
+                </div>
+            )}
+
+            <div className="flex justify-between items-center mb-6">
+                <p className="text-lg text-gray-600 font-medium">Total Profiles: <span className="text-indigo-600 font-bold">{Object.keys(students).length}</span></p>
+                <button
+                    onClick={() => setIsAddStudentOpen(true)}
+                    className="flex items-center px-4 py-2 bg-green-500 text-white font-semibold rounded-full shadow-lg hover:bg-green-600 transition transform hover:scale-105"
+                >
+                    <Plus className="h-5 w-5 mr-2" /> Add New Student
+                </button>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {loadingData ? (
+                    <div className="md:col-span-3 text-center p-12"><LoadingSpinner /></div>
+                ) : (
+                    Object.values(students).sort((a, b) => a.name.localeCompare(b.name)).map((student) => (
+                        <div key={student.id} className="bg-white p-5 rounded-xl shadow-lg border border-gray-100 hover:shadow-xl transition duration-300">
+                            <div className="flex justify-between items-start mb-3">
+                                <div>
+                                    <h3 className="text-xl font-bold text-gray-800">{student.name}</h3>
+                                    <p className="text-sm text-indigo-500 font-mono mt-1">ID: {student.id}</p>
+                                </div>
+                                <button
+                                    onClick={() => { setDeleteTarget(student.id); setShowDeleteModal(true); }}
+                                    className="p-2 text-red-500 hover:text-red-700 transition"
+                                    title="Delete Student Profile"
+                                >
+                                    <Trash2 className="h-5 w-5" />
+                                </button>
+                            </div>
+                            
+                            <p className="text-gray-600 mb-4">
+                                Strategies Planned: <span className="font-semibold text-indigo-600">{student.strategies?.length || 0}</span>
+                            </p>
+                            
+                            <button
+                                onClick={() => showPlanner(student.id)}
+                                className="w-full flex items-center justify-center px-4 py-2 bg-indigo-600 text-white font-medium rounded-full hover:bg-indigo-700 transition shadow-md"
+                            >
+                                <Edit className="h-4 w-4 mr-2" /> View/Edit Planner
+                            </button>
+                        </div>
+                    ))
+                )}
+            </div>
+
+            {renderAddStudentModal()}
+        </div>
+    );
+    
+    // Render the Add Student Modal
+    const renderAddStudentModal = () => (
+        <div className={`fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center z-40 p-4 transition-opacity duration-300 ${isAddStudentOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
+            <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full p-6 transform transition-transform duration-300 ${isAddStudentOpen ? 'scale-100' : 'scale-95'}`}>
+                {/* FIX 2: Restructured h3 tag to correctly contain the icon component, resolving the JSX parsing error. */}
+                <h3 className="text-2xl font-bold text-indigo-600 mb-4 flex items-center">
+                    <Plus className="h-6 w-6 mr-2"/> Add New Student Profile
+                </h3>
+                
+                {errorMessage && (
+                    <div className="bg-red-100 border-l-4 border-red-500 text-red-700 p-3 mb-4 rounded-lg text-sm" role="alert">
+                        {errorMessage}
+                    </div>
+                )}
+                
+                <form onSubmit={handleAddStudent}>
+                    <div className="mb-4">
+                        <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="addName">Full Name</label>
+                        <input
+                            id="addName"
+                            type="text"
+                            value={newStudentName}
+                            onChange={(e) => setNewStudentName(e.target.value)}
+                            className="w-full p-3 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 transition"
+                            placeholder="Jane Doe"
+                            required
+                        />
+                    </div>
+                    <div className="mb-4">
+                        <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="addId">Student ID (Username)</label>
+                        <input
+                            id="addId"
+                            type="text"
+                            value={newStudentId}
+                            onChange={(e) => setNewStudentId(e.target.value.toUpperCase())}
+                            className="w-full p-3 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 transition uppercase font-mono"
+                            placeholder="S005"
+                            required
+                        />
+                    </div>
+                    <div className="mb-6">
+                        <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="addPassword">Initial Password</label>
+                        <input
+                            id="addPassword"
+                            type="password"
+                            value={newStudentPassword}
+                            onChange={(e) => setNewStudentPassword(e.target.value)}
+                            className="w-full p-3 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 transition"
+                            placeholder="Set a simple password for the student"
+                            required
+                        />
+                    </div>
+                    <div className="flex justify-end space-x-3">
+                        <button
+                            type="button"
+                            onClick={() => { setIsAddStudentOpen(false); setErrorMessage(''); }}
+                            className="px-4 py-2 text-gray-700 bg-gray-200 rounded-full hover:bg-gray-300 transition"
+                        >
+                            Cancel
+                        </button>
+                        <button
+                            type="submit"
+                            className="px-4 py-2 text-white bg-indigo-600 rounded-full hover:bg-indigo-700 transition font-semibold"
+                        >
+                            Add Student
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    );
+
+    // Render Admin Management View
+    const renderAdminManagement = () => (
+        <div className="p-4 sm:p-8">
+            <button onClick={showDashboard} className="flex items-center text-indigo-600 hover:text-indigo-800 mb-6 font-semibold transition">
+                <ChevronLeft className="h-5 w-5 mr-1"/> Back to Dashboard
+            </button>
+            <div className="bg-white p-6 rounded-xl shadow-2xl">
+                <h2 className="text-3xl font-extrabold text-red-600 mb-4 flex items-center"><Settings className="h-8 w-8 mr-2"/> Admin Management Tools</h2>
+                <p className="text-gray-600 mb-8">This section allows modification of core application settings and roles. (Currently placeholder, typically used for role assignment/deletion).</p>
+                
+                <div className="border border-red-200 p-4 rounded-xl bg-red-50">
+                    <h3 className="text-xl font-bold text-red-700 mb-2">Authenticated User Details</h3>
+                    <p className="text-sm text-gray-700">Role: <span className="font-semibold">{deanRole}</span></p>
+                    <p className="text-sm text-gray-700">User ID: <span className="font-mono text-xs">{deanUser?.uid || 'N/A'}</span></p>
+                    <p className="text-sm text-gray-700">App ID: <span className="font-mono text-xs">{appId}</span></p>
+                </div>
+            </div>
+        </div>
+    );
+    
+    // --- Main Layout Render ---
+    const studentProfile = students[selectedStudentId];
+
+    let content;
+    if (currentMode === 'admin') {
+        if (!deanUser || currentView === 'login') {
+            content = <DeanLogin />;
+        } else if (currentView === 'dashboard') {
+            content = renderDashboard();
+        } else if (currentView === 'planner' && studentProfile) {
+            content = <DeanPlanner student={studentProfile} />;
+        } else if (currentView === 'admin_management') {
+            content = renderAdminManagement();
+        } else {
+            content = <div className="text-center p-20">Select a student or view dashboard.</div>;
+        }
+    } else { // Student Mode
+        if (!studentLoggedIn || currentView === 'login') {
+            content = <StudentLogin />;
+        } else if (currentView === 'student_view' && studentProfile) {
+            content = <StudentView student={studentProfile} />;
+        } else {
+            content = <div className="text-center p-20">Something went wrong. Please log in again.</div>;
+        }
+    }
+
+    return (
+        <div className="min-h-screen bg-gray-100">
+            {/* Navigation Header */}
+            <header className="bg-white shadow-lg sticky top-0 z-10">
+                <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 flex justify-between items-center">
+                    <div className="flex items-center">
+                        <h1 className="text-2xl font-extrabold text-indigo-600 tracking-tight mr-4">
+                            Strategy Planner
+                        </h1>
+                        <span className={`px-3 py-1 text-xs font-semibold rounded-full ${currentMode === 'admin' ? 'bg-indigo-100 text-indigo-600' : 'bg-green-100 text-green-600'}`}>
+                            {currentMode === 'admin' ? (deanRole || 'Dean Mode') : 'Student Portal'}
+                        </span>
+                    </div>
+                    
+                    {currentMode === 'admin' && deanUser && deanRole && (
+                        <div className="flex items-center space-x-4">
+                            <button
+                                onClick={handleDeanLogout}
+                                className="flex items-center px-3 py-2 text-white bg-red-500 rounded-full text-sm shadow-md hover:bg-red-600 transition"
+                                title="Dean Logout"
+                            >
+                                <LogOut className="h-4 w-4 mr-1"/> Log Out
+                            </button>
+                        </div>
+                    )}
+                    {currentMode === 'student' && studentLoggedIn && (
+                        <button
+                            onClick={handleStudentLogout}
+                            className="flex items-center px-3 py-2 text-white bg-red-500 rounded-full text-sm shadow-md hover:bg-red-600 transition"
+                            title="Student Logout"
+                        >
+                            <LogOut className="h-4 w-4 mr-1"/> Log Out
+                        </button>
+                    )}
+                </div>
+            </header>
+
+            {/* Main Content Area */}
+            <main className="max-w-7xl mx-auto">
+                {content}
+            </main>
+
+            {/* Confirmation Modal */}
+            <Modal
+                title="Confirm Deletion"
+                message={`Are you sure you want to permanently delete the profile for Student ID: ${deleteTarget}? This cannot be undone.`}
+                show={showDeleteModal}
+                onCancel={() => setShowDeleteModal(false)}
+                onConfirm={() => deleteTarget && handleDeleteStudent(deleteTarget)}
+                confirmText="Delete Student"
+            />
+        </div>
+    );
+};
+
+export default App;
